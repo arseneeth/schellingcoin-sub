@@ -14,8 +14,8 @@ pub trait Trait: system::Trait + token::Trait {
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 
 pub struct Message<Hash, TokenBalance> {
-	mtype: u32, // message type
-	mhash: Hash,
+	mtype: u32, // todo change to status NOTE: consider adding enum / delete
+	mhash: Hash, // todo delete 'm'
 	mvalue: u64,
 	mdeposit: TokenBalance,
 }
@@ -29,8 +29,8 @@ decl_storage! {
         pub EpochStartBlock get(epoch_start_block): T::BlockNumber;
         // All the messages being submitted in the following epoch
         pub Messages get(messages): map T::AccountId => Message<T::Hash, T::TokenBalance>;
-	
-        // pub CorrectMessages get(correct_messages): Vec<Message<T::Hash, T::TokenBalance>>;
+		
+        pub ValidMessages get(valid_messages): Vec<Message<T::Hash, T::TokenBalance>>;
 	}
 }
 
@@ -41,13 +41,15 @@ decl_module! {
 		// this is needed only if you are using events in your module
 		fn deposit_event<T>() = default;
 
+		// TODO: add epoch functionality
+
 		fn submit_hash(origin, hash: T::Hash, #[compact] deposit: T::TokenBalance) -> Result{
 			let sender = ensure_signed(origin)?;
 			// TODO: add more checks
 
 			let message = Message{
-				mtype: 1, // todo change variable names
-				mhash: hash,
+				mtype: 1, 
+				mhash: hash, 
 				mvalue: 0,
 				mdeposit: deposit,
 			};
@@ -64,15 +66,22 @@ decl_module! {
 			let mut message = Self::messages(&sender);
 			let tuple = (sender.clone(), message.mvalue);
 			let random_hash = tuple.using_encoded(<T as system::Trait>::Hashing::hash);
-			ensure!(random_hash == message.mhash, "Hashes do not mattch");
+			ensure!(random_hash == message.mhash, "Hashes do not match");
 
 			message.mvalue = value;
 			message.mtype = 2;
-			<Messages<T>>::insert(sender, message);
+
+			let mut valid_messages = Self::valid_messages();
+			valid_messages.push(message);
+			valid_messages.sort_by_key(|k| k.mvalue);
+
+			<ValidMessages<T>>::put(valid_messages);
 
 			Ok(())
 		}
+		// TODO: add withdraw deposit function for the case when message was not validated
 
+	
 	}
 }
 
