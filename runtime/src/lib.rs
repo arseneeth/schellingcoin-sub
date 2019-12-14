@@ -1,4 +1,4 @@
-//! The Substrate Node shelling runtime. This can be compiled with `#[no_std]`, ready for Wasm.
+//! The Substrate Node schelling runtime. This can be compiled with `#[no_std]`, ready for Wasm.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(not(feature = "std"), feature(alloc))]
@@ -55,8 +55,9 @@ pub type BlockNumber = u64;
 /// Index of an account's extrinsic in the chain.
 pub type Nonce = u64;
 
-/// Used for the module shelling in `./shelling.rs`
+/// Used for the module schelling in `./schelling.rs`
 mod schelling;
+mod token;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -187,9 +188,14 @@ impl sudo::Trait for Runtime {
 	type Proposal = Call;
 }
 
-/// Used for the module shelling in `./shelling.rs`
-impl shelling::Trait for Runtime {
+/// Used for the module schelling in `./schelling.rs`
+impl schelling::Trait for Runtime {
 	type Event = Event;
+}
+
+impl token::Trait for Runtime {
+	type Event = Event;
+	type TokenBalance = u128;
 }
 
 construct_runtime!(
@@ -205,8 +211,9 @@ construct_runtime!(
 		Indices: indices,
 		Balances: balances,
 		Sudo: sudo,
-		// Used for the module shelling in `./shelling.rs`
-		Shelling: shelling::{Module, Call, Storage, Event<T>},
+		// Used for the module schelling in `./schelling.rs`
+		SchellingModule: schelling::{Module, Call, Storage, Event<T>},
+		TokenModule: token::{Module, Call, Storage, Event<T>},
 	}
 );
 
