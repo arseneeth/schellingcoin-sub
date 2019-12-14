@@ -1,24 +1,36 @@
-use support::{decl_module, decl_storage, decl_event, StorageValue, dispatch::Result};
+use support::{decl_module, decl_storage, decl_event, ensure, StorageMap, StorageValue, dispatch::Result};
+use parity_codec::{Decode, Encode};
+use runtime_primitives::traits::Hash;
 use system::ensure_signed;
 
 use crate::token;
 
 /// The module's configuration trait.
 pub trait Trait: system::Trait + token::Trait {
-
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
+
+#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(Encode, Decode, Default, Clone, PartialEq)]
+
+pub struct Message<Hash, TokenBalance> {
+	mtype: u32, // message type
+	mhash: Hash,
+	mvalue: u64,
+	mdeposit: TokenBalance,
+}
+
 
 /// This module's storage items.
 decl_storage! {
 	trait Store for Module<T: Trait> as SchellingStorage {
-		// Here we are declaring a StorageValue, `Something` as a Option<u32>
-		// `get(something)` is the default getter which returns either the stored `u32` or `None` if nothing stored
-		// Just a dummy storage item. 
-		Something get(something): Option<u32>;
 
 		// BlockNumber of a new epoch being started 
         pub EpochStartBlock get(epoch_start_block): T::BlockNumber;
+        // All the messages being submitted in the following epoch
+        pub Messages get(messages): map T::AccountId => Message<T::Hash, T::TokenBalance>;
+	
+        // pub CorrectMessages get(correct_messages): Vec<Message<T::Hash, T::TokenBalance>>;
 	}
 }
 
@@ -29,18 +41,38 @@ decl_module! {
 		// this is needed only if you are using events in your module
 		fn deposit_event<T>() = default;
 
-		pub fn do_something(origin, something: u32) -> Result {
-			// TODO: You only need this if you want to check it was signed.
-			let who = ensure_signed(origin)?;
+		fn submit_hash(origin, hash: T::Hash, #[compact] deposit: T::TokenBalance) -> Result{
+			let sender = ensure_signed(origin)?;
+			// TODO: add more checks
 
-			// TODO: Code to execute when something calls this.
-			// For example: the following line stores the passed in u32 in the storage
-			<Something<T>>::put(something);
+			let message = Message{
+				mtype: 1, // todo change variable names
+				mhash: hash,
+				mvalue: 0,
+				mdeposit: deposit,
+			};
+			<Messages<T>>::insert(sender, message);
 
-			// here we are raising the Something event
-			Self::deposit_event(RawEvent::SomethingStored(something, who));
 			Ok(())
 		}
+
+		fn submit_value(origin, #[compact] value: u64) -> Result{
+			let sender = ensure_signed(origin)?;
+			ensure!(<Messages<T>>::exists(&sender), "Message hash was not submitted");
+			// TODO: add more checks
+
+			let mut message = Self::messages(&sender);
+			let tuple = (sender.clone(), message.mvalue);
+			let random_hash = tuple.using_encoded(<T as system::Trait>::Hashing::hash);
+			ensure!(random_hash == message.mhash, "Hashes do not mattch");
+
+			message.mvalue = value;
+			message.mtype = 2;
+			<Messages<T>>::insert(sender, message);
+
+			Ok(())
+		}
+
 	}
 }
 
