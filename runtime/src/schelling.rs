@@ -13,13 +13,13 @@ pub trait Trait: system::Trait + token::Trait {
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 
-pub struct Message<Hash, TokenBalance> {
-	mtype: u32, // todo change to status NOTE: consider adding enum / delete
-	mhash: Hash, // todo delete 'm'
-	mvalue: u64,
-	mdeposit: TokenBalance,
+pub struct Message<AccountId, Hash, TokenBalance> {
+	owner: AccountId,
+	status: u32, 
+	hash: Hash, 
+	value: u64,
+	deposit: TokenBalance,
 }
-
 
 /// This module's storage items.
 decl_storage! {
@@ -28,9 +28,9 @@ decl_storage! {
 		// BlockNumber of a new epoch being started 
         pub EpochStartBlock get(epoch_start_block): T::BlockNumber;
         // All the messages being submitted in the following epoch
-        pub Messages get(messages): map T::AccountId => Message<T::Hash, T::TokenBalance>;
+        pub Messages get(messages): map T::AccountId => Message<T::AccountId, T::Hash, T::TokenBalance>;
 		
-        pub ValidMessages get(valid_messages): Vec<Message<T::Hash, T::TokenBalance>>;
+        pub ValidMessages get(valid_messages): Vec<Message<T::AccountId, T::Hash, T::TokenBalance>>;
 	}
 }
 
@@ -48,10 +48,11 @@ decl_module! {
 			// TODO: add more checks
 
 			let message = Message{
-				mtype: 1, 
-				mhash: hash, 
-				mvalue: 0,
-				mdeposit: deposit,
+				owner: sender.clone(),
+				status: 1, 
+				hash: hash, 
+				value: 0,
+				deposit: deposit,
 			};
 			<Messages<T>>::insert(sender, message);
 
@@ -64,24 +65,46 @@ decl_module! {
 			// TODO: add more checks
 
 			let mut message = Self::messages(&sender);
-			let tuple = (sender.clone(), message.mvalue);
+			let tuple = (sender.clone(), message.value);
 			let random_hash = tuple.using_encoded(<T as system::Trait>::Hashing::hash);
-			ensure!(random_hash == message.mhash, "Hashes do not match");
+			ensure!(random_hash == message.hash, "Hashes do not match");
 
-			message.mvalue = value;
-			message.mtype = 2;
+			message.value = value;
+			message.status = 2;
 
 			let mut valid_messages = Self::valid_messages();
 			valid_messages.push(message);
-			valid_messages.sort_by_key(|k| k.mvalue);
+			valid_messages.sort_by_key(|k| k.value);
 
 			<ValidMessages<T>>::put(valid_messages);
 
 			Ok(())
 		}
+
+
 		// TODO: add withdraw deposit function for the case when message was not validated
 
+		fn send_rewards() -> Result{
+			let valid_messages = Self::valid_messages();
+			let message_length = valid_messages.len();
+			let lower_border = message_length.checked_div(4).ok_or("overflow")?;
+			let step = message_length.checked_mul(3).ok_or("overflow")?;
+			let upper_border = step.checked_div(4).ok_or("overflow")?;
+
+			for i in 0..message_length{
+				if i > lower_border && i < upper_border{
+					// send deposits & rewards
+				} else {
+					// send back deposits with penalties
+				}
+			} 
+
+			Ok(())			
+		}
+		
+		// TODO: add query balance
 	
+		// TODO: add query price
 	}
 }
 
