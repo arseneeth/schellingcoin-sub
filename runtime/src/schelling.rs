@@ -2,6 +2,7 @@ use support::{decl_module, decl_storage, decl_event, ensure, StorageMap, Storage
 use parity_codec::{Decode, Encode};
 use runtime_primitives::traits::Hash;
 use system::ensure_signed;
+use runtime_primitives::traits::{CheckedAdd, CheckedDiv, CheckedMul, As};
 
 use crate::token;
 
@@ -19,20 +20,6 @@ pub struct Message<AccountId, Hash, TokenBalance> {
 	hash: Hash, 
 	value: u64,
 	deposit: TokenBalance,
-}
-
-pub trait As<T> {
-    /// Convert forward (ala `Into::into`).
-    fn as_(self) -> T;
-    /// Convert backward (ala `From::from`).
-    fn sa(_: T) -> Self;
-}
-
-impl<T: Trait> Module<T> {
-    // `as_` will turn T::Balance into a u64
-    pub fn to_u64(input: T::BlockNumber) -> u64 {
-        input.as_()
-    }
 }
 
 
@@ -67,8 +54,8 @@ decl_module! {
 			let sender = ensure_signed(origin)?;
 			let epoch_start = Self::epoch_start();
 			let block_number = <system::Module<T>>::block_number();
-			let test = block_number.to_u64();
-			let deadline = epoch_start.checked_add(50).ok_or("Overflow");
+			// let test = u64::from(block_number);
+			let deadline = epoch_start.checked_add(&T::BlockNumber::sa(50)).ok_or("Overflow")?;
 			ensure!(block_number < deadline, "The deadline for hash submission is passed, try next epoxh");
 			// TODO: add more checks
 
