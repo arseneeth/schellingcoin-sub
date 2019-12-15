@@ -21,12 +21,14 @@ pub struct Message<AccountId, Hash, TokenBalance> {
 	deposit: TokenBalance,
 }
 
+
+
 /// This module's storage items.
 decl_storage! {
 	trait Store for Module<T: Trait> as SchellingStorage {
 
 		// BlockNumber of a new epoch being started 
-        pub EpochStartBlock get(epoch_start_block): T::BlockNumber;
+        pub EpochStart get(epoch_start): T::BlockNumber;
         // All the messages being submitted in the following epoch
         pub Messages get(messages): map T::AccountId => Message<T::AccountId, T::Hash, T::TokenBalance>;
 		
@@ -42,9 +44,18 @@ decl_module! {
 		fn deposit_event<T>() = default;
 
 		// TODO: add epoch functionality
+		fn set_epoch_start() -> Result{
+			let block_number = <system::Module<T>>::block_number();
+			<EpochStart<T>>::put(block_number);		
+			Ok(())	
+		}
 
 		fn submit_hash(origin, hash: T::Hash, #[compact] deposit: T::TokenBalance) -> Result{
 			let sender = ensure_signed(origin)?;
+			let epoch_start = Self::epoch_start();
+			let block_number = <system::Module<T>>::block_number();
+			let deadline = epoch_start.checked_add(50).ok_or("Overflow");
+			ensure!(block_number < deadline, "The deadline for hash submission is passed, try next epoxh");
 			// TODO: add more checks
 
 			let message = Message{
@@ -80,7 +91,6 @@ decl_module! {
 
 			Ok(())
 		}
-
 
 		// TODO: add withdraw deposit function for the case when message was not validated
 
