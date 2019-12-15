@@ -1,8 +1,8 @@
 use support::{decl_module, decl_storage, decl_event, ensure, StorageMap, StorageValue, dispatch::Result};
 use parity_codec::{Decode, Encode};
 use runtime_primitives::traits::Hash;
-use system::ensure_signed;
-use runtime_primitives::traits::{CheckedAdd, CheckedDiv, CheckedMul, As};
+use system::{ensure_signed, ensure_root};
+use runtime_primitives::traits::{CheckedAdd, CheckedSub, CheckedMul, CheckedDiv, As};
 
 use crate::token;
 
@@ -16,16 +16,17 @@ pub trait Trait: system::Trait + token::Trait {
 
 pub struct Message<AccountId, Hash, TokenBalance> {
 	owner: AccountId,
-	status: u32, 
+	status: u32, // TODO: implement status checks and updates
 	hash: Hash, 
 	value: u64,
 	deposit: TokenBalance,
 }
 
 
-/// This module's storage items.
 decl_storage! {
 	trait Store for Module<T: Trait> as SchellingStorage {
+
+        pub TokenBase get(token_base): T::AccountId;
 
 		// BlockNumber of a new epoch being started 
         pub EpochStart get(epoch_start): T::BlockNumber;
@@ -43,8 +44,17 @@ decl_module! {
 		// this is needed only if you are using events in your module
 		fn deposit_event<T>() = default;
 
-		// TODO: add epoch functionality
-		fn set_epoch_start() -> Result{
+		fn set_token_base(origin, token_base: T::AccountId) -> Result{
+			let _root = ensure_root(origin)?;
+
+			<TokenBase<T>>::put(token_base);
+
+			Ok(())			
+		}
+
+		fn new_epoch(origin) -> Result{
+			let _root = ensure_root(origin)?;
+
 			let block_number = <system::Module<T>>::block_number();
 			<EpochStart<T>>::put(block_number);		
 			Ok(())	
@@ -54,11 +64,13 @@ decl_module! {
 			let sender = ensure_signed(origin)?;
 			let epoch_start = Self::epoch_start();
 			let block_number = <system::Module<T>>::block_number();
-			// let test = u64::from(block_number);
 			let deadline = epoch_start.checked_add(&T::BlockNumber::sa(50)).ok_or("Overflow")?;
-			ensure!(block_number < deadline, "The deadline for hash submission is passed, try next epoxh");
+
+			ensure!(block_number < deadline, "The deadline for hash submission is passed, try next epoch");
 			// TODO: add more checks
 
+			<token::Module<T>>::lock(sender.clone(), deposit.clone(), hash.clone())?;
+			
 			let message = Message{
 				owner: sender.clone(),
 				status: 1, 
@@ -74,6 +86,14 @@ decl_module! {
 		fn submit_value(origin, #[compact] value: u64) -> Result{
 			let sender = ensure_signed(origin)?;
 			ensure!(<Messages<T>>::exists(&sender), "Message hash was not submitted");
+			
+			let epoch_start = Self::epoch_start();
+			let block_number = <system::Module<T>>::block_number();
+			let round_one_end = epoch_start.checked_add(&T::BlockNumber::sa(50)).ok_or("Overflow")?;
+			let deadline = epoch_start.checked_add(&T::BlockNumber::sa(100)).ok_or("Overflow")?;
+
+			ensure!(block_number > round_one_end, "Hash submission round did not end yet");
+			ensure!(block_number < deadline, "The deadline for value submission is passed, please withdraw deposit");
 			// TODO: add more checks
 
 			let mut message = Self::messages(&sender);
@@ -89,32 +109,64 @@ decl_module! {
 			valid_messages.sort_by_key(|k| k.value);
 
 			<ValidMessages<T>>::put(valid_messages);
+			// TODO: delete message from the struct
 
 			Ok(())
 		}
 
 		// TODO: add withdraw deposit function for the case when message was not validated
 
-		fn send_rewards() -> Result{
+		fn send_rewards(origin) -> Result{
+			let _root = ensure_root(origin)?;
+			// TODO: add auto triggerring onFinalize
+			// TODO: move sorting to this function
+
 			let valid_messages = Self::valid_messages();
 			let message_length = valid_messages.len();
 			let lower_border = message_length.checked_div(4).ok_or("overflow")?;
 			let step = message_length.checked_mul(3).ok_or("overflow")?;
 			let upper_border = step.checked_div(4).ok_or("overflow")?;
 
-			for i in 0..message_length{
-				if i > lower_border && i < upper_border{
-					// send deposits & rewards
-				} else {
-					// send back deposits with penalties
-				}
-			} 
+			let mut i = 0;
 
-			Ok(())			
+			for message in valid_messages.iter(){
+				if i > lower_border && i < upper_border{
+					// unlock deposits
+					let message_clone = message.clone();
+					let owner = message_clone.owner.clone();
+
+					<token::Module<T>>::unlock(message_clone.owner, message_clone.deposit, message_clone.hash)?;
+
+					// send rewards from token_base
+					let token_base = Self::token_base();
+					let origin_clone = system::RawOrigin::Signed(token_base.clone()).into(); // todo: check out how to solve it the other way
+					<token::Module<T>>::transfer_from(origin_clone, token_base, owner, T::TokenBalance::sa(100))?;					
+				} else {
+					let message_clone = message.clone();
+					let owner = message_clone.owner.clone();
+					let deposit = message_clone.deposit;
+					let step = deposit.clone().checked_mul(&T::TokenBalance::sa(90)).ok_or("overflow")?;
+					let refund = step.checked_div(&T::TokenBalance::sa(100)).ok_or("overflow")?;
+					let penalty = deposit.checked_sub(&refund).ok_or("overflow")?;
+
+					// send back deposits with penalties
+					<token::Module<T>>::unlock(message_clone.owner, refund, message_clone.hash)?;
+					
+					// send penalties to token_base
+					let token_base = Self::token_base();
+					let origin_clone = system::RawOrigin::Signed(token_base.clone()).into();// todo: check out how to solve it the other way
+					<token::Module<T>>::transfer_from(origin_clone, token_base, owner, penalty)?;					
+					
+				}
+				i = i.checked_add(1).ok_or("overflow")?;
+			}
+			let token_base = Self::token_base();
+			let origin_clone = system::RawOrigin::Signed(token_base.clone()).into();// todo: check out how to solve it the other way
+
+			Self::new_epoch(origin_clone)			
 		}
 		
 		// TODO: add query balance
-	
 		// TODO: add query price
 	}
 }
