@@ -30,10 +30,13 @@ decl_storage! {
 
 		// BlockNumber of a new epoch being started 
         pub EpochStart get(epoch_start): T::BlockNumber;
+        
         // All the messages being submitted in the following epoch
         pub Messages get(messages): map T::AccountId => Message<T::AccountId, T::Hash, T::TokenBalance>;
 		
         pub ValidMessages get(valid_messages): Vec<Message<T::AccountId, T::Hash, T::TokenBalance>>;
+	
+        pub Value get(value): u64;
 	}
 }
 
@@ -62,6 +65,8 @@ decl_module! {
 
 		fn submit_hash(origin, hash: T::Hash, #[compact] deposit: T::TokenBalance) -> Result{
 			let sender = ensure_signed(origin)?;
+			ensure!(!<Messages<T>>::exists(&sender), "There is a submission made by the message sender");		
+			
 			let epoch_start = Self::epoch_start();
 			let block_number = <system::Module<T>>::block_number();
 			let deadline = epoch_start.checked_add(&T::BlockNumber::sa(50)).ok_or("Overflow")?;
@@ -97,6 +102,8 @@ decl_module! {
 			// TODO: add more checks
 
 			let mut message = Self::messages(&sender);
+			ensure!(message.status == 1, "Message status should be 1");
+
 			let tuple = (sender.clone(), message.value);
 			let random_hash = tuple.using_encoded(<T as system::Trait>::Hashing::hash);
 			ensure!(random_hash == message.hash, "Hashes do not match");
@@ -106,15 +113,29 @@ decl_module! {
 
 			let mut valid_messages = Self::valid_messages();
 			valid_messages.push(message);
+			// TODO: move sorting to send_rewards
 			valid_messages.sort_by_key(|k| k.value);
 
 			<ValidMessages<T>>::put(valid_messages);
-			// TODO: delete message from the struct
+			
+			// delete message from the map
+			<Messages<T>>::remove(sender);
 
 			Ok(())
 		}
 
-		// TODO: add withdraw deposit function for the case when message was not validated
+		//  function for deposit withdrawal the case when message was not validated
+		fn withdraw(origin) -> Result{
+			let sender = ensure_signed(origin)?;
+			ensure!(<Messages<T>>::exists(&sender), "Message hash was not submitted");
+
+			let message = Self::messages(&sender);
+			ensure!(message.status == 1, "Message status should be 1");
+			<token::Module<T>>::unlock(message.owner, message.deposit, message.hash)?;
+
+			Ok(())
+		}
+
 
 		fn send_rewards(origin) -> Result{
 			let _root = ensure_root(origin)?;
@@ -139,7 +160,7 @@ decl_module! {
 
 					// send rewards from token_base
 					let token_base = Self::token_base();
-					let origin_clone = system::RawOrigin::Signed(token_base.clone()).into(); // todo: check out how to solve it the other way
+					let origin_clone = system::RawOrigin::Root.into(); // todo: check out how to solve it the other way
 					<token::Module<T>>::transfer_from(origin_clone, token_base, owner, T::TokenBalance::sa(100))?;					
 				} else {
 					let message_clone = message.clone();
@@ -154,7 +175,7 @@ decl_module! {
 					
 					// send penalties to token_base
 					let token_base = Self::token_base();
-					let origin_clone = system::RawOrigin::Signed(token_base.clone()).into();// todo: check out how to solve it the other way
+					let origin_clone = system::RawOrigin::Root.into();// todo: check out how to solve it the other way
 					<token::Module<T>>::transfer_from(origin_clone, token_base, owner, penalty)?;					
 					
 				}
@@ -163,6 +184,7 @@ decl_module! {
 			let token_base = Self::token_base();
 			let origin_clone = system::RawOrigin::Signed(token_base.clone()).into();// todo: check out how to solve it the other way
 
+			// TODO: update array with an empty one
 			Self::new_epoch(origin_clone)			
 		}
 		
