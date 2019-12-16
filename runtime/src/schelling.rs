@@ -160,7 +160,7 @@ decl_module! {
 
 			let epoch_start = Self::epoch_start();
 			// Should be triggered automatically on the 101st block after 
-			// the epoch start, in the current implementation is called manually 
+			// the epoch start, in the current implementation it is called manually 
 			let epoch_end = epoch_start.checked_add(&T::BlockNumber::sa(101)).ok_or("Overflow")?;
 			let block_number = <system::Module<T>>::block_number();
 
