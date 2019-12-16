@@ -72,8 +72,8 @@ decl_module! {
 			let deadline = epoch_start.checked_add(&T::BlockNumber::sa(50)).ok_or("Overflow")?;
 
 			ensure!(block_number < deadline, "The deadline for hash submission is passed, try next epoch");
+			
 			// TODO: add more checks
-
 			<token::Module<T>>::lock(sender.clone(), deposit.clone(), hash.clone())?;
 			
 			let message = Message{
@@ -99,8 +99,8 @@ decl_module! {
 
 			ensure!(block_number > round_one_end, "Hash submission round did not end yet");
 			ensure!(block_number < deadline, "The deadline for value submission is passed, please withdraw deposit");
+			
 			// TODO: add more checks
-
 			let mut message = Self::messages(&sender);
 			ensure!(message.status == 1, "Message status should be 1");
 
@@ -113,8 +113,6 @@ decl_module! {
 
 			let mut valid_messages = Self::valid_messages();
 			valid_messages.push(message);
-			// TODO: move sorting to send_rewards
-			valid_messages.sort_by_key(|k| k.value);
 
 			<ValidMessages<T>>::put(valid_messages);
 			
@@ -130,8 +128,12 @@ decl_module! {
 			ensure!(<Messages<T>>::exists(&sender), "Message hash was not submitted");
 
 			let message = Self::messages(&sender);
+			let mut message_clone = message.clone();
 			ensure!(message.status == 1, "Message status should be 1");
 			<token::Module<T>>::unlock(message.owner, message.deposit, message.hash)?;
+
+			message_clone.status = 3;
+			<Messages<T>>::insert(sender, message_clone);
 
 			Ok(())
 		}
@@ -142,11 +144,18 @@ decl_module! {
 			// TODO: add auto triggerring onFinalize
 			// TODO: move sorting to this function
 
-			let valid_messages = Self::valid_messages();
-			let message_length = valid_messages.len();
-			let lower_border = message_length.checked_div(4).ok_or("overflow")?;
-			let step = message_length.checked_mul(3).ok_or("overflow")?;
+			let mut valid_messages = Self::valid_messages();
+
+			// implement quick sort over valid_messages
+			valid_messages.sort_by_key(|k| k.value);
+
+			let messages_length = valid_messages.len();
+			let lower_border = messages_length.checked_div(4).ok_or("overflow")?;
+			let step = messages_length.checked_mul(3).ok_or("overflow")?;
 			let upper_border = step.checked_div(4).ok_or("overflow")?;
+
+			let median_index =  messages_length.checked_div(2).ok_or("overflow")?;
+			<Value<T>>::put(valid_messages[median_index].value);
 
 			let mut i = 0;
 
@@ -164,9 +173,8 @@ decl_module! {
 					<token::Module<T>>::transfer_from(origin_clone, token_base, owner, T::TokenBalance::sa(100))?;					
 				} else {
 					let message_clone = message.clone();
-					let owner = message_clone.owner.clone();
 					let deposit = message_clone.deposit;
-					let step = deposit.clone().checked_mul(&T::TokenBalance::sa(90)).ok_or("overflow")?;
+					let step = deposit.clone().checked_mul(&T::TokenBalance::sa(99)).ok_or("overflow")?;
 					let refund = step.checked_div(&T::TokenBalance::sa(100)).ok_or("overflow")?;
 					let penalty = deposit.checked_sub(&refund).ok_or("overflow")?;
 
@@ -175,8 +183,7 @@ decl_module! {
 					
 					// send penalties to token_base
 					let token_base = Self::token_base();
-					let origin_clone = system::RawOrigin::Root.into();// todo: check out how to solve it the other way
-					<token::Module<T>>::transfer_from(origin_clone, token_base, owner, penalty)?;					
+					<token::Module<T>>::unlock(token_base, penalty, message_clone.hash)?;					
 					
 				}
 				i = i.checked_add(1).ok_or("overflow")?;
@@ -188,8 +195,6 @@ decl_module! {
 			Self::new_epoch(origin_clone)			
 		}
 		
-		// TODO: add query balance
-		// TODO: add query price
 	}
 }
 
