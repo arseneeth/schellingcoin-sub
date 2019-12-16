@@ -40,7 +40,8 @@ decl_storage! {
 		// Output of our alrorithm, source of wisdom of the crowd 
         pub Value get(value): u64;
 
-        //TODO: add min deposit
+        // Minimal deposit
+        pub MinDeposit get(min_deposit): T::TokenBalance;
 	}
 }
 
@@ -48,14 +49,6 @@ decl_module! {
 	pub struct Module<T: Trait> for enum Call where origin: T::Origin {
 
 		fn deposit_event<T>() = default;
-
-		fn set_token_base(origin, token_base: T::AccountId) -> Result{
-			let _root = ensure_root(origin)?;
-
-			<TokenBase<T>>::put(token_base);
-
-			Ok(())			
-		}
 
 		fn new_epoch(origin) -> Result{
 			let _root = ensure_root(origin)?;
@@ -72,16 +65,20 @@ decl_module! {
 		fn submit_hash(origin, hash: T::Hash, #[compact] deposit: T::TokenBalance) -> Result{
 			let sender = ensure_signed(origin)?;
 			ensure!(!<Messages<T>>::exists(&sender), "There is a submission made by the message sender");		
+			ensure!(deposit >= Self::min_deposit(), "The deposit is not high enough");		
 			
 			let epoch_start = Self::epoch_start();
 			let block_number = <system::Module<T>>::block_number();
+
+			// deadline for hash submission 50 blocks after the epoch start
 			let deadline = epoch_start.checked_add(&T::BlockNumber::sa(50)).ok_or("Overflow")?;
 
 			ensure!(block_number < deadline, "The deadline for hash submission is passed, try next epoch");
 			
-			// TODO: add more checks
+			// lock the deposit of the sender
 			<token::Module<T>>::lock(sender.clone(), deposit.clone(), hash.clone())?;
 			
+			// compose a message and add to the message list
 			let message = Message{
 				owner: sender.clone(),
 				status: 1, 
@@ -103,20 +100,25 @@ decl_module! {
 			
 			let epoch_start = Self::epoch_start();
 			let block_number = <system::Module<T>>::block_number();
+
+			// the end of the value submission round
 			let round_one_end = epoch_start.checked_add(&T::BlockNumber::sa(50)).ok_or("Overflow")?;
+			
+			// the period for value submission is between 50 and 100 blocks after the epoch start
 			let deadline = epoch_start.checked_add(&T::BlockNumber::sa(100)).ok_or("Overflow")?;
 
 			ensure!(block_number > round_one_end, "Hash submission round did not end yet");
 			ensure!(block_number < deadline, "The deadline for value submission is passed, please withdraw deposit");
 			
-			// TODO: add more checks
 			let mut message = Self::messages(&sender);
 			ensure!(message.status == 1, "Message status should be 1");
 
+			// compare the hash of account id and value with the hash being submitted
 			let tuple = (sender.clone(), message.value);
 			let random_hash = tuple.using_encoded(<T as system::Trait>::Hashing::hash);
 			ensure!(random_hash == message.hash, "Hashes do not match");
 
+			// update message info and add to the list of valid messages
 			message.value = value.clone();
 			message.status = 2;
 
@@ -155,24 +157,28 @@ decl_module! {
 		fn send_rewards(origin) -> Result{
 			let _root = ensure_root(origin)?;
 			// TODO: add auto triggerring onFinalize
-			// TODO: move sorting to this function
 
 			let epoch_start = Self::epoch_start();
-			let epoch_end = epoch_start.checked_add(&T::BlockNumber::sa(100)).ok_or("Overflow")?;
+			// Should be triggered automatically on the 101st block after 
+			// the epoch start, in the current implementation is called manually 
+			let epoch_end = epoch_start.checked_add(&T::BlockNumber::sa(101)).ok_or("Overflow")?;
 			let block_number = <system::Module<T>>::block_number();
 
 			ensure!(block_number == epoch_end, "It's not the time to send out the rewards yet");
 
 			let mut valid_messages = Self::valid_messages();
 
-			// implement quick sort over valid_messages
+			// implement quick sort over valid_messages by value submitted
 			valid_messages.sort_by_key(|k| k.value);
 
 			let messages_length = valid_messages.len();
+
+			// get 25th and 75th percentiles
 			let lower_border = messages_length.checked_div(4).ok_or("overflow")?;
 			let step = messages_length.checked_mul(3).ok_or("overflow")?;
 			let upper_border = step.checked_div(4).ok_or("overflow")?;
 
+			// get median 
 			let median_index =  messages_length.checked_div(2).ok_or("overflow")?;
 			<Value<T>>::put(valid_messages[median_index].value);
 
@@ -182,6 +188,7 @@ decl_module! {
 			let mut i = 0;
 
 			for message in valid_messages.iter(){
+				// if inside 25 and and 75 percentile range 
 				if i > lower_border && i < upper_border{
 					// unlock deposits
 					let message_clone = message.clone();
@@ -191,16 +198,19 @@ decl_module! {
 
 					// send rewards from token_base
 					let token_base = Self::token_base();
-					let origin_clone = system::RawOrigin::Root.into(); // todo: check out how to solve it the other way
+					let origin_clone = system::RawOrigin::Root.into();
 					<token::Module<T>>::transfer_from(origin_clone, token_base, owner, T::TokenBalance::sa(100))?;					
+				// if out of the range
 				} else {
 					let message_clone = message.clone();
 					let deposit = message_clone.deposit;
+
+					// get the 99 percent of the deposit to refund 
 					let step = deposit.clone().checked_mul(&T::TokenBalance::sa(99)).ok_or("overflow")?;
 					let refund = step.checked_div(&T::TokenBalance::sa(100)).ok_or("overflow")?;
 					let penalty = deposit.checked_sub(&refund).ok_or("overflow")?;
 
-					// send back deposits with penalties
+					// send back deposits after subtration of penalties
 					<token::Module<T>>::unlock(message_clone.owner, refund, message_clone.hash)?;
 					
 					// send penalties to token_base
@@ -212,7 +222,9 @@ decl_module! {
 			}
 			let origin_clone = system::RawOrigin::Root.into(); 
 			
-			// TODO: update array with an empty one
+			//replace ValidMessages array with an empty one
+			<ValidMessages<T>>::put(Vec::new());
+
 			Self::new_epoch(origin_clone)			
 		}
 		
