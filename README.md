@@ -1,6 +1,23 @@
-# schellingcoin
+# Schelling Coin: Minimal-Trust Data Feed Protocol in Substrate
 
-A new SRML-based Substrate node, ready for hacking.
+In 2014 Vitalik Buterin proposed[https://blog.ethereum.org/2014/03/28/schellingcoin-a-minimal-trust-universal-data-feed/] and prototyped[https://blog.ethereum.org/2014/06/30/advanced-contract-programming-example-schellingcoin/] one of the first implementations of Decentralized Data Feed smart contracts for Ethereum blockchain. 
+
+This project is an attempt to build a PoC of Schelling Coin protocol in Substrate. 
+
+# Protocol Mechanics
+
+Here we provide a rather mechanistic explanation, for more game-theoretic motivations behind the algorithm please check out the original blogpost[[https://blog.ethereum.org/2014/03/28/schellingcoin-a-minimal-trust-universal-data-feed/]. 
+
+The general idea behind the protocol is that everyone “votes” on a particular value and everyone who submitted a vote that is between the 25th and 75 percentile (ie. close to median) receives a reward.
+
+The basic protocol steps are as follows:
+
+1. During the first half of the epoch, users submit the hash of their address together with the value that they "vote" and "locks" some amount of tokens as a deposit.
+2. During the second half of the epoch, users submit the value whose has they provided in the first half of the epoch.
+3. Hash the value provided and the user address in order to compare it with the hash from the first half of the epoch.
+4. If hashes match add values to the list and sort it
+5. Everybody who submitted values between 25th and 75th percentile receive their stake back and a reward. Those who didn't get into the range receive their stake with a small decrease as a penalty.   
+
 
 # Building
 
