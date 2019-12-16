@@ -16,16 +16,16 @@ pub trait Trait: system::Trait + token::Trait {
 
 pub struct Message<AccountId, Hash, TokenBalance> {
 	owner: AccountId,
-	status: u32, // TODO: implement status checks and updates
+	status: u32, 
 	hash: Hash, 
 	value: u64,
 	deposit: TokenBalance,
 }
 
-
 decl_storage! {
 	trait Store for Module<T: Trait> as SchellingStorage {
 
+		// Address that we send rewards from
         pub TokenBase get(token_base): T::AccountId;
 
 		// BlockNumber of a new epoch being started 
@@ -34,17 +34,19 @@ decl_storage! {
         // All the messages being submitted in the following epoch
         pub Messages get(messages): map T::AccountId => Message<T::AccountId, T::Hash, T::TokenBalance>;
 		
+		// Messages that passed our checks
         pub ValidMessages get(valid_messages): Vec<Message<T::AccountId, T::Hash, T::TokenBalance>>;
 	
+		// Output of our alrorithm, source of wisdom of the crowd 
         pub Value get(value): u64;
+
+        //TODO: add min deposit
 	}
 }
 
 decl_module! {
-	/// The module declaration.
 	pub struct Module<T: Trait> for enum Call where origin: T::Origin {
-		// Initializing events
-		// this is needed only if you are using events in your module
+
 		fn deposit_event<T>() = default;
 
 		fn set_token_base(origin, token_base: T::AccountId) -> Result{
@@ -59,7 +61,11 @@ decl_module! {
 			let _root = ensure_root(origin)?;
 
 			let block_number = <system::Module<T>>::block_number();
-			<EpochStart<T>>::put(block_number);		
+			<EpochStart<T>>::put(block_number.clone());		
+
+			// emit event that new epoch has started
+			Self::deposit_event(RawEvent::NewEpochStarted(block_number));
+
 			Ok(())	
 		}
 
@@ -81,9 +87,12 @@ decl_module! {
 				status: 1, 
 				hash: hash, 
 				value: 0,
-				deposit: deposit,
+				deposit: deposit.clone(),
 			};
-			<Messages<T>>::insert(sender, message);
+			<Messages<T>>::insert(sender.clone(), message);
+
+			// emit event that the hash was submitted
+			Self::deposit_event(RawEvent::HashSubmitted(sender, deposit));
 
 			Ok(())
 		}
@@ -108,14 +117,17 @@ decl_module! {
 			let random_hash = tuple.using_encoded(<T as system::Trait>::Hashing::hash);
 			ensure!(random_hash == message.hash, "Hashes do not match");
 
-			message.value = value;
+			message.value = value.clone();
 			message.status = 2;
 
 			let mut valid_messages = Self::valid_messages();
 			valid_messages.push(message);
 
 			<ValidMessages<T>>::put(valid_messages);
-			
+
+			// emit event that the value submission was accepted
+			Self::deposit_event(RawEvent::ValueSubmissionAccepted(sender.clone(), value));
+
 			// delete message from the map
 			<Messages<T>>::remove(sender);
 
@@ -128,21 +140,28 @@ decl_module! {
 			ensure!(<Messages<T>>::exists(&sender), "Message hash was not submitted");
 
 			let message = Self::messages(&sender);
-			let mut message_clone = message.clone();
 			ensure!(message.status == 1, "Message status should be 1");
 			<token::Module<T>>::unlock(message.owner, message.deposit, message.hash)?;
 
-			message_clone.status = 3;
-			<Messages<T>>::insert(sender, message_clone);
+			// delete message from the map
+			<Messages<T>>::remove(sender.clone());
+
+			// emit event that the deposit was withdrawn
+			Self::deposit_event(RawEvent::DepositWithdrawn(sender, message.deposit));
 
 			Ok(())
 		}
-
 
 		fn send_rewards(origin) -> Result{
 			let _root = ensure_root(origin)?;
 			// TODO: add auto triggerring onFinalize
 			// TODO: move sorting to this function
+
+			let epoch_start = Self::epoch_start();
+			let epoch_end = epoch_start.checked_add(&T::BlockNumber::sa(100)).ok_or("Overflow")?;
+			let block_number = <system::Module<T>>::block_number();
+
+			ensure!(block_number == epoch_end, "It's not the time to send out the rewards yet");
 
 			let mut valid_messages = Self::valid_messages();
 
@@ -156,6 +175,9 @@ decl_module! {
 
 			let median_index =  messages_length.checked_div(2).ok_or("overflow")?;
 			<Value<T>>::put(valid_messages[median_index].value);
+
+			// Emit event that new value is being set
+			Self::deposit_event(RawEvent::NewValueSet(valid_messages[median_index].value));
 
 			let mut i = 0;
 
@@ -188,9 +210,8 @@ decl_module! {
 				}
 				i = i.checked_add(1).ok_or("overflow")?;
 			}
-			let token_base = Self::token_base();
-			let origin_clone = system::RawOrigin::Signed(token_base.clone()).into();// todo: check out how to solve it the other way
-
+			let origin_clone = system::RawOrigin::Root.into(); 
+			
 			// TODO: update array with an empty one
 			Self::new_epoch(origin_clone)			
 		}
@@ -199,11 +220,17 @@ decl_module! {
 }
 
 decl_event!(
-	pub enum Event<T> where AccountId = <T as system::Trait>::AccountId {
-		// Just a dummy event.
-		// Event `Something` is declared with a parameter of the type `u32` and `AccountId`
-		// To emit this event, we call the deposit funtion, from our runtime funtions
-		SomethingStored(u32, AccountId),
+	pub enum Event<T> where AccountId = <T as system::Trait>::AccountId,
+							Balance = <T as token::Trait>::TokenBalance,
+							BlockNumber = <T as system::Trait>::BlockNumber,
+	{
+
+		NewEpochStarted(BlockNumber),
+		HashSubmitted(AccountId, Balance),
+		ValueSubmissionAccepted(AccountId, u64),
+		DepositWithdrawn(AccountId, Balance),
+		NewValueSet(u64),
+
 	}
 );
 
@@ -212,56 +239,61 @@ decl_event!(
 mod tests {
 	use super::*;
 
+	use primitives::{Blake2Hasher, H256};
 	use runtime_io::with_externalities;
-	use primitives::{H256, Blake2Hasher};
-	use support::{impl_outer_origin, assert_ok};
 	use runtime_primitives::{
-		BuildStorage,
+		testing::{Digest, DigestItem, Header, UintAuthorityId},
 		traits::{BlakeTwo256, IdentityLookup},
-		testing::{Digest, DigestItem, Header}
-	};
+		BuildStorage,
+  	};
+  	use support::{assert_noop, assert_ok, impl_outer_origin};
 
-	impl_outer_origin! {
-		pub enum Origin for Test {}
-	}
+  	impl_outer_origin! {
+    	pub enum Origin for Test {}
+  	}
 
-	// For testing the module, we construct most of a mock runtime. This means
-	// first constructing a configuration type (`Test`) which `impl`s each of the
-	// configuration traits of modules we want to use.
 	#[derive(Clone, Eq, PartialEq)]
 	pub struct Test;
 	impl system::Trait for Test {
-		type Origin = Origin;
-		type Index = u64;
-		type BlockNumber = u64;
-		type Hash = H256;
-		type Hashing = BlakeTwo256;
-		type Digest = Digest;
-		type AccountId = u64;
-		type Lookup = IdentityLookup<Self::AccountId>;
-		type Header = Header;
-		type Event = ();
-		type Log = DigestItem;
+	  	type Origin = Origin;
+	    type Index = u64;
+	    type BlockNumber = u64;
+	    type Hash = H256;
+	    type Hashing = BlakeTwo256;
+	    type Digest = Digest;
+	    type AccountId = u64;
+	    type Lookup = IdentityLookup<u64>;
+	    type Header = Header;
+	    type Event = ();
+	    type Log = DigestItem;
 	}
-	impl Trait for Test {
-		type Event = ();
-	}
-	type schelling = Module<Test>;
 
-	// This function basically just builds a genesis storage key/value store according to
-	// our desired mockup.
+	impl consensus::Trait for Test {
+	    type Log = DigestItem;
+	    type SessionKey = UintAuthorityId;
+	    type InherentOfflineReport = ();
+	}
+
+	impl token::Trait for Test {
+	    type Event = ();
+	    type TokenBalance = u64;
+	}
+	  
+	impl Trait for Test {
+	    type Event = ();
+	}
+
+	type schelling = Module<Test>;
+	type Token = token::Module<Test>;
+
 	fn new_test_ext() -> runtime_io::TestExternalities<Blake2Hasher> {
 		system::GenesisConfig::<Test>::default().build_storage().unwrap().0.into()
 	}
 
 	#[test]
-	fn it_works_for_default_value() {
+	fn dummy_test() {
 		with_externalities(&mut new_test_ext(), || {
-			// Just a dummy test for the dummy funtion `do_something`
-			// calling the `do_something` function with a value 42
-			assert_ok!(schelling::do_something(Origin::signed(1), 42));
-			// asserting that the stored value is equal to what we stored
-			assert_eq!(schelling::something(), Some(42));
+			assert_eq!(1, 1);
 		});
 	}
 }
