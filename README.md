@@ -1,6 +1,6 @@
 # Schelling Coin: Minimal-Trust Data Feed Protocol in Substrate
 
-![alt text](https://s3.amazonaws.com/ngccoin-production/world-coin-price-guide/85381f.jpg)
+<img src="https://s3.amazonaws.com/ngccoin-production/world-coin-price-guide/85381f.jpg" height="150" width="150">
 
 In 2014 Vitalik Buterin [proposed](https://blog.ethereum.org/2014/03/28/schellingcoin-a-minimal-trust-universal-data-feed/) and [prototyped](https://blog.ethereum.org/2014/06/30/advanced-contract-programming-example-schellingcoin/) one of the first implementations of Decentralized Data Feed smart contracts for Ethereum blockchain. 
 
@@ -20,8 +20,7 @@ The basic protocol steps are as follows:
 4. If hashes match add values to the list and sort it
 5. Everybody who submitted values between 25th and 75th percentile receive their stake back and a reward. Those who didn't get into the range receive their stake with a small decrease as a penalty.   
 
-Schelling coin graphical representation:
-![alt text](https://blog.ethereum.org/wp-content/uploads/2014/11/schellingcoin.png)
+<img src="https://blog.ethereum.org/wp-content/uploads/2014/11/schellingcoin.png" height="400" width="400">
 
 
 # Building
