@@ -1,5 +1,7 @@
 # Schelling Coin: Minimal-Trust Data Feed Protocol in Substrate
 
+![alt text](https://s3.amazonaws.com/ngccoin-production/world-coin-price-guide/85381f.jpg)
+
 In 2014 Vitalik Buterin proposed[https://blog.ethereum.org/2014/03/28/schellingcoin-a-minimal-trust-universal-data-feed/] and prototyped[https://blog.ethereum.org/2014/06/30/advanced-contract-programming-example-schellingcoin/] one of the first implementations of Decentralized Data Feed smart contracts for Ethereum blockchain. 
 
 This project is an attempt to build a PoC of Schelling Coin protocol in Substrate. 
@@ -17,6 +19,9 @@ The basic protocol steps are as follows:
 3. Hash the value provided and the user address in order to compare it with the hash from the first half of the epoch.
 4. If hashes match add values to the list and sort it
 5. Everybody who submitted values between 25th and 75th percentile receive their stake back and a reward. Those who didn't get into the range receive their stake with a small decrease as a penalty.   
+
+Schelling coin representation:
+![alt text](https://blog.ethereum.org/wp-content/uploads/2014/11/schellingcoin.png)
 
 
 # Building
