@@ -30,7 +30,7 @@ git = 'https://github.com/paritytech/substrate.git'
 package = 'sp-finality-grandpa'
 rev = '40a16efefc070faf5a25442bc3ae1d0ea2478eee'
 
-[dependencies.node-template-runtime]
+[dependencies.subschelling]
 path = 'runtime'
 
 [dependencies.sc-basic-authority]

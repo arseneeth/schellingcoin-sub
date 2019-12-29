@@ -1,7 +1,7 @@
 [package]
-authors = ['Anonymous']
+authors = ['arsenyjin']
 edition = '2018'
-name = 'node-template-runtime'
+name = 'subschelling'
 version = '2.0.0'
 
 [features]
